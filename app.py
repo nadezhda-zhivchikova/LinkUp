@@ -145,4 +145,144 @@ def like_button(ratings_df, user_id, item_id, kind, key):
     label = "👍 Liked" if liked else "👍 Like"
     if st.button(label, key=key):
         if liked:
-            ratings_df = ratings_df[~((ratings_df.user_id==user_id) & (ra_]()
+            ratings_df = ratings_df[~((ratings_df.user_id==user_id) & (ratings_df.item_id==item_id) & (ratings_df.type==kind))]
+        else:
+            new = pd.DataFrame([{"user_id":user_id,"item_id":item_id,"type":kind,"value":1}])
+            ratings_df = pd.concat([ratings_df, new], ignore_index=True)
+        save_ratings(ratings_df)
+        do_rerun()
+    return ratings_df
+
+# ============ UI ============
+
+def main():
+    st.set_page_config(page_title="School Recommender (Films • Music • Books)", layout="wide")
+    st.title("🎒 School Recommender — Films • Music • Books")
+    st.caption("MVP: user-based collaborative filtering + genre fallback")
+
+    films, music, books, users, ratings = load_data()
+
+    with st.sidebar:
+        st.header("Login")
+        email = st.text_input("School email", value=st.session_state.get("user_id", "demo@student.school"))
+        name = st.text_input("Name", value=st.session_state.get("name", "Demo Student"))
+        grade = st.text_input("Class/Grade", value=st.session_state.get("grade", "9A"))
+        if st.button("Sign in / Register"):
+            st.session_state["user_id"] = email.strip().lower()
+            st.session_state["name"] = name.strip()
+            st.session_state["grade"] = grade.strip()
+            # создаём пользователя при входе
+            users2 = ensure_user(users, st.session_state["user_id"], st.session_state["name"], st.session_state["grade"])
+            do_rerun()
+
+        st.markdown("---")
+        st.subheader("Data location")
+        st.code(str(DATA_DIR), language="bash")
+
+    user_id = st.session_state.get("user_id", None)
+    if not user_id:
+        st.info("⬅️ Войдите в систему через боковую панель.")
+        st.stop()
+
+    # Обновим данные (на случай, если user только что добавлен)
+    films, music, books, users, ratings = load_data()
+
+    tabs = st.tabs(["👤 Profile", "🎞️ Films", "🎵 Music", "📚 Books", "✨ Recommendations"])
+
+    # PROFILE
+    with tabs[0]:
+        st.subheader("Favorite Genres")
+        urow = users[users.user_id==user_id]
+        if urow.empty:
+            users = ensure_user(users, user_id, st.session_state.get("name",""), st.session_state.get("grade",""))
+            films, music, books, users, ratings = load_data()
+            urow = users[users.user_id==user_id]
+        urow = urow.iloc[0].copy()
+
+        film_genres = sorted(list({g for s in films.genres.fillna('') for g in str(s).split(",") if g}))
+        music_genres = sorted(list({g for s in music.genres.fillna('') for g in str(s).split(",") if g}))
+        book_genres  = sorted(list({g for s in books.genres.fillna('') for g in str(s).split(",") if g}))
+
+        sel_f = st.multiselect("Film genres", film_genres, default=list(parse_genres(urow.get("favorite_genres_films",""))))
+        sel_m = st.multiselect("Music genres", music_genres, default=list(parse_genres(urow.get("favorite_genres_music",""))))
+        sel_b = st.multiselect("Book genres",  book_genres,  default=list(parse_genres(urow.get("favorite_genres_books",""))))
+
+        if st.button("Save Profile"):
+            users.loc[users.user_id==user_id, "favorite_genres_films"] = ",".join(sel_f)
+            users.loc[users.user_id==user_id, "favorite_genres_music"] = ",".join(sel_m)
+            users.loc[users.user_id==user_id, "favorite_genres_books"] = ",".join(sel_b)
+            save_users(users)
+            st.success("Saved!")
+
+        st.markdown("> Совет: отметьте минимум 5 любимых тайтлов в каждой категории для лучших рекомендаций.")
+
+    # FILMS
+    with tabs[1]:
+        st.subheader("Catalog — Films")
+        if len(films) == 0:
+            st.warning("Каталог фильмов пуст. Добавьте записи в items_films.csv (id,title,year,genres,language,age_rating,type).")
+        for _, row in films.iterrows():
+            with st.container(border=True):
+                st.markdown(f"**{row['title']}** ({int(row['year'])}) · *{row['genres']}*")
+                ratings = like_button(ratings, user_id, row['id'], "film", key=f"film_{row['id']}")
+
+    # MUSIC
+    with tabs[2]:
+        st.subheader("Catalog — Music")
+        if len(music) == 0:
+            st.warning("Каталог музыки пуст. Добавьте записи в items_music.csv.")
+        for _, row in music.iterrows():
+            with st.container(border=True):
+                more = f"{row.get('artist','')} · {int(row['year'])} · *{row['genres']}*"
+                st.markdown(f"**{row['title']}** — {more}")
+                ratings = like_button(ratings, user_id, row['id'], "music", key=f"music_{row['id']}")
+
+    # BOOKS
+    with tabs[3]:
+        st.subheader("Catalog — Books")
+        if len(books) == 0:
+            st.warning("Каталог книг пуст. Добавьте записи в items_books.csv.")
+        for _, row in books.iterrows():
+            with st.container(border=True):
+                who = row.get('author','')
+                st.markdown(f"**{row['title']}** — {who} ({int(row['year'])}) · *{row['genres']}*")
+                ratings = like_button(ratings, user_id, row['id'], "book", key=f"book_{row['id']}")
+
+    # RECOMMEND
+    with tabs[4]:
+        st.subheader("Recommendations")
+        col1, col2, col3 = st.columns(3)
+
+        with col1:
+            st.markdown("### 🎞️ Films")
+            rec = recommend_items(user_id, ratings, users, films.copy(), "film", K=10, N=10)
+            if isinstance(rec, pd.DataFrame) and len(rec):
+                for _, row in rec.iterrows():
+                    st.write(f"• {row['title']} ({int(row['year'])})")
+            else:
+                st.caption("Пока нечего рекомендовать — отметьте фильмы лайками.")
+
+        with col2:
+            st.markdown("### 🎵 Music")
+            rec = recommend_items(user_id, ratings, users, music.copy(), "music", K=10, N=10)
+            if isinstance(rec, pd.DataFrame) and len(rec):
+                for _, row in rec.iterrows():
+                    artist = row.get('artist','')
+                    st.write(f"• {row['title']} — {artist}")
+            else:
+                st.caption("Пока нечего рекомендовать — отметьте треки лайками.")
+
+        with col3:
+            st.markdown("### 📚 Books")
+            rec = recommend_items(user_id, ratings, users, books.copy(), "book", K=10, N=10)
+            if isinstance(rec, pd.DataFrame) and len(rec):
+                for _, row in rec.iterrows():
+                    who = row.get('author','')
+                    st.write(f"• {row['title']} — {who}")
+            else:
+                st.caption("Пока нечего рекомендовать — отметьте книги лайками.")
+
+    st.caption("Privacy tip: данные пишутся в временную директорию контейнера. Для продакшена используйте БД и авторизацию (например, Firebase).")
+
+if __name__ == "__main__":
+    main()
