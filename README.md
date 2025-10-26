@@ -15,11 +15,5 @@ streamlit run app.py
 - `users.csv`
 - `ratings.csv`
 
-## Как пользоваться
-- Введите школьный email слева и нажмите **Sign in / Register**.
-- Во вкладке **Profile** отметьте любимые жанры.
-- В разделах **Films / Music / Books** ставьте **Like** на тайтлы.
-- Во вкладке **Recommendations** появятся рекомендации (user-based CF, fallback на жанры).
-
 ## Заметки
 - Это учебный MVP. Для школы в продакшене используйте БД (например, Firestore/Postgres), аутентификацию и модерацию каталога.
