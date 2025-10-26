@@ -1,0 +1,4 @@
+id,title,author,year,genres,language,age_rating,type
+b1,The Little Prince,Antoine de Saint‑Exupéry,1943,"fairy_tale,philosophy",fr,G,book
+b2,1984,George Orwell,1949,"dystopia,politics",en,PG-13,book
+b3,Norwegian Wood,Haruki Murakami,1987,"romance,drama",ja,PG-13,book
